@@ -22,9 +22,12 @@ class GuruScraper():
         self.listing_titles = []
         self.listing_urls = []
 
-    def get_url(self):
+    def get_url(self, pageno):
         location_dict = self.meta_dict[self.location]
-        pretext = 'https://www.propertyguru.com.sg/property-for-sale?market=residential&'
+        if pageno == 1:
+            pretext = 'https://www.propertyguru.com.sg/property-for-sale?market=residential&'
+        else:
+            pretext = f'https://www.propertyguru.com.sg/property-for-sale/{str(pageno)}?&'
         if location_dict['by'] == 'mrt':
             location_text = f'center_lat={str(location_dict["lat"])}&center_long={str(location_dict["long"])}&MRT_STATION={str(location_dict["MRT"])}&distance=1&freetext={location_dict["freetext"]}&'
         elif location_dict['by'] == 'district':
@@ -38,9 +41,8 @@ class GuruScraper():
         url = f'{pretext}{location_text}{buy_text}{price_text}{type_text}{tenure_text}search=true'
         return url
 
-    def get_soup(self):
-        url = self.get_url()
-        print(url)
+    def get_soup(self, pageno):
+        url = self.get_url(pageno)
         attempt = 0
         while attempt < MAX_ATTEMPTS:
             try:
@@ -49,16 +51,32 @@ class GuruScraper():
                 break
             except cloudscraper.exceptions.CloudflareChallengeError:
                 attempt += 1
-                logging.info(f'Location {self.location}: Cloudscraper attempt {attempt} failed due to Captcha challenge.')
+                logging.info(f'Location {self.location}, Page {pageno}: Cloudscraper attempt {attempt} failed due to Captcha challenge.')
                 time.sleep(5)
         soup = BeautifulSoup(page.content, "html.parser")
-        logging.info(f'Location {self.location}: Successfully bypassed Cloudflare.')
+        logging.info(f'Location {self.location}, Page {pageno}: Successfully bypassed Cloudflare.')
         return soup
 
-    def get_raw_listings(self):
-        soup = self.get_soup()
+    def get_all_raw_listings(self):
+        # This function gets the raw listings of all pages produced by the search
+        # Get soup of the first search page
+        soup = self.get_soup(1)
+        self.get_page_raw_listings(soup)
+        # There could be more than 1 page in the search result, need to find all of them
+        pagination = soup.find_all('a', {'href': re.compile(r"/property-for-sale/*"), "data-page": re.compile(r"\d*")})
+        if len(pagination) > 1:
+            pages = [int(i)+1 for i in range(len(pagination)-1)][1:]
+            for j in pages:
+                soup = self.get_soup(j)
+                self.get_page_raw_listings(soup)
+
+        logging.info(f'Location {self.location}: Found {self.listing_count} total listings.')
+        return self.listing_ids, self.listing_titles, self.listing_urls
+
+    def get_page_raw_listings(self, soup):
+        # This function gets the raw listings of a single page related to the search
         listings = soup.find_all('div', {'class': re.compile(r"listing-card listing-id-*")})
-        self.listing_count = len(listings)
+        self.listing_count += len(listings)
         for listing in listings:
             id = listing['data-listing-id']
             content = listing.find('a', {'href': re.compile(r"https://www\.propertyguru\.com\.sg/listing/*")})
@@ -67,11 +85,9 @@ class GuruScraper():
             self.listing_ids.append(id)
             self.listing_titles.append(title)
             self.listing_urls.append(href)
-        logging.info(f'Location {self.location}: Found {self.listing_count} total listings.')
-        return self.listing_ids, self.listing_titles, self.listing_urls
 
     def wrap_listings_html(self):
-        self.get_raw_listings()
+        self.get_all_raw_listings()
         table = [self.listing_titles, self.listing_urls]
         table = list(map(list, itertools.zip_longest(*table, fillvalue=None)))
         tbl = tabulate(table, headers=["Title", "URL"], tablefmt='html')
