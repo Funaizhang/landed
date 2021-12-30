@@ -3,36 +3,27 @@ import cloudscraper
 import re
 from tabulate import tabulate
 import itertools
+import time
+import logging
+logging.basicConfig(level=logging.INFO)
+
+MAX_ATTEMPTS = 10
 
 class GuruScraper():
-    def __init__(self, locations):
-        self.meta_dict = {
-            'Upper Thomson':  {'lat': 1.3539717, 'long': 103.8338127, 'MRT': 8193, 'freetext': 'TE8+Upper+Thomson+MRT+Station', 'by': 'mrt'},
-            'Bright Hill':    {'lat': 1.3618059, 'long': 103.8320631, 'MRT': 8192, 'freetext': 'TE7+Bright+Hill+MRT+Station', 'by': 'mrt'},
-            'Tan Kah Kee':    {'lat': 1.3257996, 'long': 103.8079556, 'MRT': 2018, 'freetext': 'DT8+Tan+Kah+Kee+MRT+Station', 'by': 'mrt'},
-            'Sixth Avenue':   {'lat': 1.3311776, 'long': 103.7972016, 'MRT': 2021, 'freetext': 'DT7+Sixth+Avenue+MRT+Station', 'by': 'mrt'},
-            'KAP':            {'lat': 1.3356884, 'long': 103.7831926, 'MRT': 2024, 'freetext': 'DT6+King+Albert+Park+MRT+Station', 'by': 'mrt'},
-            'Marine Parade':  {'lat': 1.3030169, 'long': 103.905723, 'MRT': 8322, 'freetext': 'TE26+Marine+Parade+MRT+Station', 'by': 'mrt'},
-            'Marine Terrace': {'lat': 1.3069297, 'long': 103.915745, 'MRT': 8323, 'freetext': 'TE27+Marine+Terrace+MRT+Station', 'by': 'mrt'},
-            'D20 Thomson':       {'district_code': 'D20', 'freetext': 'D20+Ang+Mo+Kio+/+Bishan+/+Thomson', 'by': 'district'},
-            'D11 Newton/Novena': {'district_code': 'D11', 'freetext': 'D11+Newton+/+Novena', 'by': 'district'},
-            'D10 Bukit Timah':   {'district_code': 'D10', 'freetext': 'D10+Tanglin+/+Holland+/+Bukit+Timah', 'by': 'district'},
-            'D15 East Coast':    {'district_code': 'D15', 'freetext': 'D15+East+Coast+/+Marine+Parade', 'by': 'district'},
-            'All': {'days': 3, 'by': ''},
-        }
+    def __init__(self, dict, location, minprice=3.1e6, maxprice=5.3e6, freshness=3):
+        self.meta_dict = dict
+        self.minprice = int(minprice)
+        self.maxprice = int(maxprice)
+        self.freshness = int(freshness)
+        self.location = str(location)
 
-        self.minprice = int(3.1e6)
-        self.maxprice = int(5.3e6)
-        self.locations = locations
-
-    def cleanup(self):
         self.listing_count = 0
         self.listing_ids = []
         self.listing_titles = []
         self.listing_urls = []
 
-    def get_url(self, location):
-        location_dict = self.meta_dict[location]
+    def get_url(self):
+        location_dict = self.meta_dict[self.location]
         pretext = 'https://www.propertyguru.com.sg/property-for-sale?market=residential&'
         if location_dict['by'] == 'mrt':
             location_text = f'center_lat={str(location_dict["lat"])}&center_long={str(location_dict["long"])}&MRT_STATION={str(location_dict["MRT"])}&distance=1&freetext={location_dict["freetext"]}&'
@@ -47,15 +38,25 @@ class GuruScraper():
         url = f'{pretext}{location_text}{buy_text}{price_text}{type_text}{tenure_text}search=true'
         return url
 
-    def get_soup(self, loc):
-        url = self.get_url(loc)
-        scraper = cloudscraper.create_scraper()  # returns a CloudScraper instance
-        page = scraper.get(url)
+    def get_soup(self):
+        url = self.get_url()
+        print(url)
+        attempt = 0
+        while attempt < MAX_ATTEMPTS:
+            try:
+                scraper = cloudscraper.create_scraper()
+                page = scraper.get(url)
+                break
+            except cloudscraper.exceptions.CloudflareChallengeError:
+                attempt += 1
+                logging.info(f'Location {self.location}: Cloudscraper attempt {attempt} failed due to Captcha challenge.')
+                time.sleep(5)
         soup = BeautifulSoup(page.content, "html.parser")
+        logging.info(f'Location {self.location}: Successfully bypassed Cloudflare.')
         return soup
 
-    def get_listings(self, loc):
-        soup = self.get_soup(loc)
+    def get_raw_listings(self):
+        soup = self.get_soup()
         listings = soup.find_all('div', {'class': re.compile(r"listing-card listing-id-*")})
         self.listing_count = len(listings)
         for listing in listings:
@@ -66,19 +67,13 @@ class GuruScraper():
             self.listing_ids.append(id)
             self.listing_titles.append(title)
             self.listing_urls.append(href)
+        logging.info(f'Location {self.location}: Found {self.listing_count} total listings.')
         return self.listing_ids, self.listing_titles, self.listing_urls
 
-    def wrap_listings_html(self, loc):
+    def wrap_listings_html(self):
+        self.get_raw_listings()
         table = [self.listing_titles, self.listing_urls]
         table = list(map(list, itertools.zip_longest(*table, fillvalue=None)))
         tbl = tabulate(table, headers=["Title", "URL"], tablefmt='html')
-        msg = f'<p></p><p><big><b>{str(loc)}</b>: {str(self.listing_count)} new listings out of {str(self.listing_count)} total listings.</big></p>'
+        msg = f'<br></br><p><big><b>{self.location}</b>: {str(self.listing_count)} new listings out of {str(self.listing_count)} total listings.</big></p>'
         return msg+tbl
-
-    def run(self):
-        html_objs = []
-        for loc in self.locations:
-            self.cleanup()
-            self.get_listings(loc)
-            html_objs.append(self.wrap_listings_html(loc))
-        return html_objs

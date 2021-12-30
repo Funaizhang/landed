@@ -1,8 +1,8 @@
 import smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
 from typing import List
+import logging
 
 class EmailSender():
     def __init__(self, sender='', password='', receivers=List):
@@ -18,11 +18,9 @@ class EmailSender():
         self.body["Subject"] = subject
         self.body["From"] = self.sender
         self.body["To"] = ', '.join(self.receivers)
-        today = datetime.today().strftime('%Y-%m-%d')
         self.message = f"""\
             <html>
             <body>
-                <p>New listings found on {today}: </p>
                 {message}
             </body>
             </html>
@@ -36,3 +34,4 @@ class EmailSender():
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
             server.login(self.sender, self.password)
             server.sendmail(self.sender, self.receivers, self.body.as_string())
+        logging.info('Email sent')
