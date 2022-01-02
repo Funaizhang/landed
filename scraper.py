@@ -28,17 +28,19 @@ class GuruScraper():
             pretext = 'https://www.propertyguru.com.sg/property-for-sale?market=residential&'
         else:
             pretext = f'https://www.propertyguru.com.sg/property-for-sale/{str(pageno)}?&'
+
         if location_dict['by'] == 'mrt':
             location_text = f'center_lat={str(location_dict["lat"])}&center_long={str(location_dict["long"])}&MRT_STATION={str(location_dict["MRT"])}&distance=1&freetext={location_dict["freetext"]}&'
         elif location_dict['by'] == 'district':
             location_text = f'&freetext={location_dict["freetext"]}&district_code[]={str(location_dict["district_code"])}&'
         else:
-            location_text = f'listing_posted={str(location_dict["days"])}&'
+            location_text = ''
+        recency_text = f'listing_posted={str(self.freshness)}&'
         buy_text = 'listing_type=sale&'
         price_text = f'minprice={str(self.minprice)}&maxprice={str(self.maxprice)}&'
         tenure_text = "tenure[]=F&tenure[]=L999&"
         type_text = "property_type=L&property_type_code[]=TERRA&property_type_code[]=DETAC&property_type_code[]=SEMI&property_type_code[]=CORN&property_type_code[]=LBUNG&property_type_code[]=BUNG&property_type_code[]=SHOPH&property_type_code[]=RLAND&property_type_code[]=TOWN&property_type_code[]=CON&property_type_code[]=LCLUS&"
-        url = f'{pretext}{location_text}{buy_text}{price_text}{type_text}{tenure_text}search=true'
+        url = f'{pretext}{location_text}{buy_text}{recency_text}{price_text}{type_text}{tenure_text}search=true'
         return url
 
     def get_soup(self, pageno):
@@ -52,7 +54,7 @@ class GuruScraper():
             except cloudscraper.exceptions.CloudflareChallengeError:
                 attempt += 1
                 logging.info(f'Location {self.location}, Page {pageno}: Cloudscraper attempt {attempt} failed due to Captcha challenge.')
-                time.sleep(5)
+                time.sleep(2)
         soup = BeautifulSoup(page.content, "html.parser")
         logging.info(f'Location {self.location}, Page {pageno}: Successfully bypassed Cloudflare.')
         return soup
@@ -63,9 +65,14 @@ class GuruScraper():
         soup = self.get_soup(1)
         self.get_page_raw_listings(soup)
         # There could be more than 1 page in the search result, need to find all of them
-        pagination = soup.find_all('a', {'href': re.compile(r"/property-for-sale/*"), "data-page": re.compile(r"\d*")})
-        if len(pagination) > 1:
-            pages = [int(i)+1 for i in range(len(pagination)-1)][1:]
+        paginations = soup.find_all('a', {'href': re.compile(r"/property-for-sale/*"), "data-page": re.compile(r"\d*")})
+        # There could be 0 listings returned
+        if paginations is None:
+            paginations = []
+        pagination = max([int(i['data-page']) for i in paginations] + [0])
+        # If there are more than 1 pages
+        if pagination > 1:
+            pages = range(2, pagination+1)
             for j in pages:
                 soup = self.get_soup(j)
                 self.get_page_raw_listings(soup)
@@ -78,6 +85,9 @@ class GuruScraper():
         listings = soup.find_all('div', {'class': re.compile(r"listing-card listing-id-*")})
         self.listing_count += len(listings)
         for listing in listings:
+            if 'data-listing-id' not in listing.attrs:
+                self.listing_count = 0
+                return
             id = listing['data-listing-id']
             content = listing.find('a', {'href': re.compile(r"https://www\.propertyguru\.com\.sg/listing/*")})
             title = content['title'].replace("For Sale - ", "")

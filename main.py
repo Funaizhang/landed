@@ -4,7 +4,8 @@ from datetime import datetime
 
 min_price = 3e6
 max_price = 5.3e6
-freshness = 3
+fresh = 1
+stale = 3
 meta_dict = {
     'Upper Thomson':     {'lat': 1.3539717, 'long': 103.8338127, 'MRT': 8193, 'freetext': 'TE8+Upper+Thomson+MRT+Station', 'by': 'mrt'},
     'Bright Hill':       {'lat': 1.3618059, 'long': 103.8320631, 'MRT': 8192, 'freetext': 'TE7+Bright+Hill+MRT+Station', 'by': 'mrt'},
@@ -17,12 +18,12 @@ meta_dict = {
     'D11 Newton/Novena': {'district_code': 'D11', 'freetext': 'D11+Newton+/+Novena', 'by': 'district'},
     'D10 Bukit Timah':   {'district_code': 'D10', 'freetext': 'D10+Tanglin+/+Holland+/+Bukit+Timah', 'by': 'district'},
     'D15 East Coast':    {'district_code': 'D15', 'freetext': 'D15+East+Coast+/+Marine+Parade', 'by': 'district'},
-    'All': {'days': freshness, 'by': ''},
+    # 'All': {'by': ''},
     }
 
 if __name__ == '__main__':
     locations = meta_dict.keys()
-    myGuruScrapers = [GuruScraper(meta_dict, i, minprice=min_price, maxprice=max_price) for i in locations]
+    myGuruScrapers = [GuruScraper(meta_dict, i, minprice=min_price, maxprice=max_price, freshness=fresh if i == 'All' else stale) for i in locations]
     htmls = [i.wrap_listings_html() for i in myGuruScrapers]
 
     today = datetime.today().strftime('%Y-%m-%d')
