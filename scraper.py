@@ -21,6 +21,7 @@ class GuruScraper():
         self.listing_ids = []
         self.listing_titles = []
         self.listing_urls = []
+        self.listing_prices = []
 
     def get_url(self, pageno):
         location_dict = self.meta_dict[self.location]
@@ -46,6 +47,7 @@ class GuruScraper():
     def get_soup(self, pageno):
         url = self.get_url(pageno)
         attempt = 0
+        # Try to connect to PropertyGuru a few times if rejected by Captcha challenge
         while attempt < MAX_ATTEMPTS:
             try:
                 scraper = cloudscraper.create_scraper()
@@ -92,14 +94,16 @@ class GuruScraper():
             content = listing.find('a', {'href': re.compile(r"https://www\.propertyguru\.com\.sg/listing/*")})
             title = content['title'].replace("For Sale - ", "")
             href = content['href']
+            price = listing.find('span', {'class': 'price'}).contents[0]
             self.listing_ids.append(id)
             self.listing_titles.append(title)
             self.listing_urls.append(href)
+            self.listing_prices.append(price)
 
     def wrap_listings_html(self):
         self.get_all_raw_listings()
-        table = [self.listing_titles, self.listing_urls]
+        table = [self.listing_titles, self.listing_prices, self.listing_urls]
         table = list(map(list, itertools.zip_longest(*table, fillvalue=None)))
-        tbl = tabulate(table, headers=["Title", "URL"], tablefmt='html')
+        tbl = tabulate(table, headers=["Title", "Price", "URL"], tablefmt='html')
         msg = f'<br></br><p><big><b>{self.location}</b>: {str(self.listing_count)} new listings out of {str(self.listing_count)} total listings.</big></p>'
         return msg+tbl
