@@ -2,8 +2,8 @@ from mail import EmailSender
 from scraper import GuruScraper
 from datetime import datetime
 
-min_price = 3e6
-max_price = 5.3e6
+min_price = 3.3e6
+max_price = 5.5e6
 fresh = 1
 stale = 3
 meta_dict = {
@@ -21,9 +21,14 @@ meta_dict = {
     # 'All': {'by': ''},
     }
 
+ignore_listings = ['whitley residences', 'inglewood', 'estrivillas']
+
 if __name__ == '__main__':
     locations = meta_dict.keys()
-    myGuruScrapers = [GuruScraper(meta_dict, i, minprice=min_price, maxprice=max_price, freshness=fresh if i == 'All' else stale) for i in locations]
+    myGuruScrapers = [GuruScraper(meta_dict, i,
+                                  minprice=min_price, maxprice=max_price,
+                                  freshness=fresh if i == 'All' else stale,
+                                  ignore=ignore_listings) for i in locations]
     htmls = [i.wrap_listings_html() for i in myGuruScrapers]
 
     today = datetime.today().strftime('%Y-%m-%d')

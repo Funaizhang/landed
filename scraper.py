@@ -1,27 +1,56 @@
 from bs4 import BeautifulSoup
 import cloudscraper
 import re
+import os
+import csv
 from tabulate import tabulate
+from typing import List
 import itertools
+from datetime import datetime, timedelta
 import time
 import logging
 logging.basicConfig(level=logging.INFO)
 
 MAX_ATTEMPTS = 10
+FRESHNESS_THRESHOLD = 3
+SEEN_FILEPATH = os.path.dirname(os.path.abspath(__file__)) + '/seen.csv'
+TODAY = datetime.today()
 
 class GuruScraper():
-    def __init__(self, dict, location, minprice=3.1e6, maxprice=5.3e6, freshness=3):
-        self.meta_dict = dict
+    def __init__(self, meta_dict, location, minprice=3.1e6, maxprice=5.3e6, freshness=3, ignore=List):
+        self.meta_dict = meta_dict
+        self.location = str(location)
         self.minprice = int(minprice)
         self.maxprice = int(maxprice)
         self.freshness = int(freshness)
-        self.location = str(location)
+        self.ignore = ignore
 
         self.listing_count = 0
         self.listing_ids = []
         self.listing_titles = []
         self.listing_urls = []
         self.listing_prices = []
+        self.listing_date = self.load_seen_listings(SEEN_FILEPATH)
+
+    def load_seen_listings(self, filepath):
+        # Return dictionary of list_id: date
+        try:
+            with open(filepath) as csv_file:
+                reader = csv.reader(csv_file)
+                listing_dates = dict(reader)
+                logging.info(f'Seen listings loaded from {filepath}')
+        except FileNotFoundError:
+            logging.warn(f'{filepath} does not exist.')
+            listing_dates = {}
+        return listing_dates
+
+    def save_seen_listings(self, filepath):
+        with open(filepath, 'a') as csv_file:
+            writer = csv.writer(csv_file)
+            for id in self.listing_ids:
+                listing_date = min(TODAY, self.listing_date.get(id, TODAY))
+                writer.writerow([id, listing_date])
+        logging.info(f'Seen listings in {self.location} wrtten to {filepath}')
 
     def get_url(self, pageno):
         location_dict = self.meta_dict[self.location]
@@ -91,8 +120,14 @@ class GuruScraper():
                 self.listing_count = 0
                 return
             id = listing['data-listing-id']
+            if TODAY - self.listing_date.get(id, TODAY) > timedelta(days=FRESHNESS_THRESHOLD):
+                continue
             content = listing.find('a', {'href': re.compile(r"https://www\.propertyguru\.com\.sg/listing/*")})
             title = content['title'].replace("For Sale - ", "")
+            # Check if we want to ignore this listing (from title)
+            ignore = [re.search(case, title, re.IGNORECASE) for case in self.ignore]
+            if not all(case is None for case in ignore):
+                continue
             href = content['href']
             price = listing.find('span', {'class': 'price'}).contents[0]
             self.listing_ids.append(id)
@@ -102,8 +137,10 @@ class GuruScraper():
 
     def wrap_listings_html(self):
         self.get_all_raw_listings()
-        table = [self.listing_titles, self.listing_prices, self.listing_urls]
-        table = list(map(list, itertools.zip_longest(*table, fillvalue=None)))
-        tbl = tabulate(table, headers=["Title", "Price", "URL"], tablefmt='html')
+        tbl = [self.listing_titles, self.listing_prices, self.listing_urls]
+        tbl = list(map(list, itertools.zip_longest(*tbl, fillvalue=None)))
+        tbl = tabulate(tbl, headers=["Title", "Price", "URL"], tablefmt='html')
         msg = f'<br></br><p><big><b>{self.location}</b>: {str(self.listing_count)} new listings out of {str(self.listing_count)} total listings.</big></p>'
+        # Save seen listings
+        self.save_seen_listings(SEEN_FILEPATH)
         return msg+tbl
