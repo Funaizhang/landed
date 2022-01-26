@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 MAX_ATTEMPTS = 10
 FRESHNESS_THRESHOLD = 3
 SEEN_FILEPATH = os.path.dirname(os.path.abspath(__file__)) + '/seen.csv'
-TODAY = datetime.today()
+TODAY = datetime.today().date()
 
 class GuruScraper():
     def __init__(self, meta_dict, location, minprice=3.1e6, maxprice=5.3e6, freshness=3, ignore=List):
@@ -30,7 +30,7 @@ class GuruScraper():
         self.listing_titles = []
         self.listing_urls = []
         self.listing_prices = []
-        self.listing_date = self.load_seen_listings(SEEN_FILEPATH)
+        self.listing_dates = self.load_seen_listings(SEEN_FILEPATH)
 
     def load_seen_listings(self, filepath):
         # Return dictionary of list_id: date
@@ -40,15 +40,17 @@ class GuruScraper():
                 listing_dates = dict(reader)
                 logging.info(f'Seen listings loaded from {filepath}')
         except FileNotFoundError:
-            logging.warn(f'{filepath} does not exist.')
+            logging.warning(f'{filepath} does not exist.')
             listing_dates = {}
+        # Convert str values to date
+        listing_dates = {k: datetime.strptime(v, '%Y-%m-%d').date() for k, v in listing_dates.items()}
         return listing_dates
 
     def save_seen_listings(self, filepath):
         with open(filepath, 'a') as csv_file:
             writer = csv.writer(csv_file)
             for id in self.listing_ids:
-                listing_date = min(TODAY, self.listing_date.get(id, TODAY))
+                listing_date = min(TODAY, self.listing_dates.get(id, TODAY))
                 writer.writerow([id, listing_date])
         logging.info(f'Seen listings in {self.location} wrtten to {filepath}')
 
@@ -120,7 +122,7 @@ class GuruScraper():
                 self.listing_count = 0
                 return
             id = listing['data-listing-id']
-            if TODAY - self.listing_date.get(id, TODAY) > timedelta(days=FRESHNESS_THRESHOLD):
+            if TODAY - self.listing_dates.get(id, TODAY) > timedelta(days=FRESHNESS_THRESHOLD):
                 continue
             content = listing.find('a', {'href': re.compile(r"https://www\.propertyguru\.com\.sg/listing/*")})
             title = content['title'].replace("For Sale - ", "")
